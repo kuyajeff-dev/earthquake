@@ -1,359 +1,665 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Jepoy Earthquake Monitor</title>
+  <title>Jepoy — Earthquake Monitor (Revamp)</title>
 
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Leaflet & plugins -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="manifest" href="./manifest.json">
+
+  <!-- MarkerCluster -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <!-- Heatmap (leaflet.heat) -->
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
   <meta name="theme-color" content="#1E40AF">
-
-
   <style>
-    #map { height: 68vh; min-height: 480px; }
+    html,body,#app { height: 100%; }
+    #map { height: 64vh; min-height: 420px; border-radius: 0.5rem; }
+    .card { min-height: 64px; }
+    /* small performance hint: keep list items compact */
+    .quake-row { transition: background .12s ease; }
   </style>
 </head>
-<body class="bg-slate-100 text-slate-800">
+<body class="bg-slate-50 text-slate-800" id="app">
 
-<!-- TOP NAVBAR -->
-<header class="bg-blue-800 text-white shadow-lg">
-  <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <img src="LOGO.jpg"
-           class="h-10" alt="Jepoy logo">
-      <div>
-        <h1 class="text-xl font-bold leading-tight">Jepoy – Earthquake Monitoring Dashboard</h1>
-        <p class="text-sm opacity-80 -mt-1">Live Global & Philippine Seismic Activity</p>
+  <!-- NAV -->
+  <header class="bg-blue-800 text-white shadow">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <img src="LOGO.jpg" alt="Logo" class="h-10 w-10 object-cover rounded" />
+        <div>
+          <h1 class="text-lg font-bold">Jepoy — Earthquake Monitor</h1>
+          <div class="text-xs opacity-80">Live — USGS feeds · Philippines & Global</div>
+        </div>
+      </div>
+
+      <div class="text-sm opacity-90">
+        <span id="statusOnline" class="mr-3">● <span id="networkText">Online</span></span>
+        <button id="installBtn" class="bg-white text-blue-800 rounded px-3 py-1 text-sm hidden">Install</button>
       </div>
     </div>
-    <div class="text-sm opacity-80">Updated Live — USGS Data Feed</div>
-  </div>
-</header>
+  </header>
 
-<!-- MAIN LAYOUT -->
-<div class="max-w-7xl mx-auto px-4 py-5 grid grid-cols-1 lg:grid-cols-4 gap-5">
+  <!-- MAIN -->
+  <main class="max-w-7xl mx-auto px-4 py-5 grid grid-cols-1 lg:grid-cols-4 gap-5">
 
-  <!-- LEFT SIDEBAR -->
-  <aside class="bg-white rounded-xl shadow p-4">
-    <h2 class="text-lg font-bold mb-3">Controls</h2>
-    <div class="space-y-4">
-      <div>
-        <label class="block text-sm font-semibold">Timeframe</label>
-        <select id="timeframe" class="mt-1 w-full bg-slate-50 border rounded px-2 py-2">
+    <!-- LEFT SIDEBAR -->
+    <aside class="bg-white rounded-xl shadow p-4 space-y-4">
+      <h2 class="font-semibold text-lg">Controls</h2>
+
+      <!-- timeframe & advanced -->
+      <div class="space-y-2">
+        <label class="text-sm font-medium">Timeframe</label>
+        <select id="timeframe" class="w-full rounded border p-2 bg-slate-50">
           <option value="hour">Past hour</option>
           <option value="day" selected>Past day</option>
           <option value="week">Past week</option>
         </select>
       </div>
+
+      <div class="space-y-2">
+        <label class="text-sm font-medium">Advanced mode</label>
+        <select id="advMode" class="w-full rounded border p-2 bg-slate-50">
+          <option value="none" selected>None (use timeframe)</option>
+          <option value="today">Today only (midnight → now)</option>
+          <option value="latest">Latest only (1)</option>
+          <option value="custom">Custom date</option>
+          <option value="range">Custom date range</option>
+        </select>
+
+        <div id="customSingle" class="hidden mt-2">
+          <label class="text-xs text-slate-600">Pick date</label>
+          <input id="singleDate" type="date" class="w-full rounded border p-2 bg-slate-50" />
+        </div>
+
+        <div id="customRange" class="hidden mt-2 grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-xs text-slate-600">From</label>
+            <input id="fromDate" type="date" class="w-full rounded border p-2 bg-slate-50" />
+          </div>
+          <div>
+            <label class="text-xs text-slate-600">To</label>
+            <input id="toDate" type="date" class="w-full rounded border p-2 bg-slate-50" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Philippines filter -->
       <div>
-        <label class="flex items-center text-sm font-semibold">
-          <input id="philToggle" type="checkbox" class="mr-2">
-          Philippines Only
+        <label class="flex items-center gap-2">
+          <input id="philOnly" type="checkbox" class="form-checkbox h-4 w-4" />
+          <span class="text-sm font-medium">Philippines only</span>
         </label>
       </div>
+
+      <!-- magnitude -->
       <div>
-        <label class="block text-sm font-semibold">Auto-Refresh Interval (seconds)</label>
-        <input id="intervalInput" type="number" min="10" value="60"
-               class="mt-1 w-full bg-slate-50 border rounded px-2 py-2" />
+        <label class="text-sm font-medium">Magnitude (min – max)</label>
+        <div class="flex items-center gap-2">
+          <input id="magMin" type="number" min="0" max="10" step="0.1" value="0" class="w-20 rounded border p-2 bg-slate-50" />
+          <input id="magMax" type="number" min="0" max="10" step="0.1" value="10" class="w-20 rounded border p-2 bg-slate-50" />
+        </div>
+        <div class="text-xs text-slate-500 mt-1">You can also type values and press Enter.</div>
       </div>
-      <div class="flex gap-2">
-        <button id="refreshBtn"
-                class="flex-1 bg-blue-700 hover:bg-blue-800 text-white rounded px-3 py-2">
-          Refresh
-        </button>
-        <button id="toggleAuto"
-                class="bg-gray-200 px-3 py-2 rounded">
-          Stop
-        </button>
-      </div>
-      <hr>
-      <h2 class="text-lg font-bold">Recent Earthquakes</h2>
-      <div id="list" class="mt-2 space-y-2 max-h-[55vh] overflow-auto pr-1"></div>
-    </div>
-  </aside>
 
-  <!-- RIGHT SIDE -->
-  <main class="lg:col-span-3 space-y-5">
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div class="bg-white rounded-xl shadow p-4">
-        <h4 class="text-sm text-slate-500">Total Events</h4>
-        <p id="card_total" class="text-3xl font-bold text-blue-700">—</p>
+      <!-- heatmap toggle -->
+      <div class="flex items-center gap-2">
+        <label class="flex items-center gap-2">
+          <input id="heatToggle" type="checkbox" class="form-checkbox h-4 w-4" />
+          <span class="text-sm font-medium">Heatmap mode</span>
+        </label>
       </div>
-      <div class="bg-white rounded-xl shadow p-4">
-        <h4 class="text-sm text-slate-500">Strongest Magnitude</h4>
-        <p id="card_maxmag" class="text-3xl font-bold text-red-600">—</p>
-      </div>
-      <div class="bg-white rounded-xl shadow p-4">
-        <h4 class="text-sm text-slate-500">Most Recent</h4>
-        <p id="card_latest" class="text-sm font-semibold text-slate-700">—</p>
-      </div>
-    </div>
 
-    <section class="bg-white rounded-xl shadow p-4">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold">Earthquake Map</h2>
-        <div class="flex items-center gap-2 text-sm">
-          <span class="h-3 w-3 bg-red-600 rounded-full"></span> Epicenter
+      <!-- auto refresh -->
+      <div>
+        <label class="text-sm font-medium">Auto-refresh (sec)</label>
+        <div class="flex gap-2">
+          <input id="autoInterval" type="number" min="10" value="60" class="w-full rounded border p-2 bg-slate-50" />
+          <button id="toggleAuto" class="px-3 py-2 rounded bg-gray-200">Start</button>
         </div>
       </div>
-      <div id="map" class="mt-3 rounded border"></div>
-    </section>
 
-    <section id="details" class="bg-white rounded-xl shadow p-4 hidden"></section>
+      <!-- actions -->
+      <div class="flex gap-2">
+        <button id="refreshBtn" class="flex-1 bg-blue-700 text-white rounded px-3 py-2">Refresh</button>
+        <button id="clearBtn" class="bg-red-600 text-white rounded px-3 py-2">Clear</button>
+      </div>
+
+      <hr/>
+
+      <h3 class="text-sm font-semibold">Recent earthquakes</h3>
+      <div id="list" class="mt-2 space-y-1 max-h-[45vh] overflow-auto pr-1"></div>
+    </aside>
+
+    <!-- MAIN / RIGHT -->
+    <section class="lg:col-span-3 space-y-5">
+
+      <!-- summary cards -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-white rounded-xl shadow p-4 card">
+          <h4 class="text-sm text-slate-500">Total events</h4>
+          <p id="cardTotal" class="text-3xl font-bold text-blue-700">—</p>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4 card">
+          <h4 class="text-sm text-slate-500">Strongest magnitude</h4>
+          <p id="cardMax" class="text-3xl font-bold text-red-600">—</p>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4 card">
+          <h4 class="text-sm text-slate-500">Most recent</h4>
+          <p id="cardRecent" class="text-sm font-semibold text-slate-700">—</p>
+        </div>
+      </div>
+
+      <!-- map -->
+      <div class="bg-white rounded-xl shadow p-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl font-bold">Earthquake map</h2>
+          <div class="text-sm flex items-center gap-2">
+            <span class="h-3 w-3 bg-red-600 rounded-full"></span> Epicenter
+          </div>
+        </div>
+
+        <div id="map" class="mt-3"></div>
+      </div>
+
+      <!-- details -->
+      <div id="details" class="bg-white rounded-xl shadow p-4 hidden"></div>
+    </section>
   </main>
 
-</div>
+  <!-- small footer -->
+  <footer class="max-w-7xl mx-auto px-4 py-4 text-xs text-slate-500">
+    Data source: USGS GeoJSON feeds · Built with Leaflet · Jepoy Earthquake Monitor
+  </footer>
 
-<script>
-/* =======================================================
-   Jepoy Earthquake Monitor — Optimized JS
-   Supports hundreds of markers efficiently
-======================================================= */
+  <!-- APP SCRIPT -->
+  <script>
+  (function() {
+    'use strict';
 
-const map = L.map('map', { minZoom: 2 }).setView([12.8797, 121.7740], 4);
+    // ========== Core map setup ==========
+    const map = L.map('map', { minZoom: 2 }).setView([12.8797, 121.7740], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-// Add OSM tiles
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-  attribution: '&copy; OpenStreetMap contributors'
-}).addTo(map);
+    // marker cluster group
+    const clusterGroup = L.markerClusterGroup({
+      chunkedLoading: true, // helps with many markers
+      chunkProgress: null,
+      maxClusterRadius: 50
+    }).addTo(map);
 
-// FeatureGroup for markers (supports getBounds)
-const markersLayer = L.featureGroup().addTo(map);
+    // heatmap layer (created on demand)
+    let heatLayer = null;
 
-let currentData = [];
-let autoTimer = null;
+    // internal state
+    let allFeatures = []; // full fetched features (GeoJSON features array)
+    let lastFetchUrl = null;
+    let autoTimer = null;
+    let pendingRefresh = false;
 
-// Philippines bounding box
-const PH_BBOX = {
-  minlatitude: 4.5,
-  maxlatitude: 21.0,
-  minlongitude: 116.0,
-  maxlongitude: 127.5
-};
+    // controls
+    const controls = {
+      timeframe: document.getElementById('timeframe'),
+      advMode: document.getElementById('advMode'),
+      singleDate: document.getElementById('singleDate'),
+      fromDate: document.getElementById('fromDate'),
+      toDate: document.getElementById('toDate'),
+      philOnly: document.getElementById('philOnly'),
+      magMin: document.getElementById('magMin'),
+      magMax: document.getElementById('magMax'),
+      heatToggle: document.getElementById('heatToggle'),
+      autoInterval: document.getElementById('autoInterval'),
+      toggleAutoBtn: document.getElementById('toggleAuto'),
+      refreshBtn: document.getElementById('refreshBtn'),
+      clearBtn: document.getElementById('clearBtn'),
+      list: document.getElementById('list'),
+      details: document.getElementById('details'),
+      cardTotal: document.getElementById('cardTotal'),
+      cardMax: document.getElementById('cardMax'),
+      cardRecent: document.getElementById('cardRecent'),
+      customSingle: document.getElementById('customSingle'),
+      customRange: document.getElementById('customRange'),
+      statusOnline: document.getElementById('statusOnline'),
+      networkText: document.getElementById('networkText'),
+    };
 
-// Controls
-const controls = {
-  timeframe: document.getElementById('timeframe'),
-  philToggle: document.getElementById('philToggle'),
-  intervalInput: document.getElementById('intervalInput'),
-  refreshBtn: document.getElementById('refreshBtn'),
-  list: document.getElementById('list'),
-  toggleAuto: document.getElementById('toggleAuto'),
-  details: document.getElementById('details')
-};
+    // PH bounding box
+    const PH_BBOX = { minlatitude: 4.5, maxlatitude: 21.0, minlongitude: 116.0, maxlongitude: 127.5 };
 
-/**
- * Build USGS GeoJSON API URL
- */
-function buildUSGSUrl({ timeframe }) {
-  const now = new Date();
-  let past;
-  if (timeframe === 'hour') past = new Date(now - 3600000);
-  else if (timeframe === 'day') past = new Date(now - 86400000);
-  else past = new Date(now - 604800000); // week
+    // Debounce helper
+    function debounce(fn, wait=250) {
+      let t;
+      return function(...args) {
+        clearTimeout(t);
+        t = setTimeout(() => fn.apply(this, args), wait);
+      };
+    }
 
-  const iso = past.toISOString().split('.')[0];
-  const base = 'https://earthquake.usgs.gov/fdsnws/event/1/query';
-  const params = new URLSearchParams({
-    format: 'geojson',
-    starttime: iso,
-    orderby: 'time'
-  });
-  return `${base}?${params.toString()}`;
-}
+    // Format ISO for USGS (no milliseconds)
+    function isoNoMs(date) {
+      return date.toISOString().split('.')[0];
+    }
 
-/**
- * Fetch earthquake data and render
- */
-async function fetchEarthquakes() {
-  let url = buildUSGSUrl({ timeframe: controls.timeframe.value });
+    // Build USGS URL from current controls (returns string or null if missing params)
+    function buildUSGSUrl() {
+      const base = 'https://earthquake.usgs.gov/fdsnws/event/1/query';
+      const adv = controls.advMode.value;
 
-  if (controls.philToggle.checked) {
-    const bb = PH_BBOX;
-    url += `&minlatitude=${bb.minlatitude}&maxlatitude=${bb.maxlatitude}&minlongitude=${bb.minlongitude}&maxlongitude=${bb.maxlongitude}`;
-  }
-
-  try {
-    controls.refreshBtn.disabled = true;
-    controls.refreshBtn.textContent = 'Loading...';
-
-    const res = await fetch(url);
-    const data = await res.json();
-
-    currentData = data.features || [];
-    renderEarthquakes(currentData);
-
-  } catch (err) {
-    console.warn('Network failed, loading cached data...', err);
-
-    if ('caches' in window) {
-      const cache = await caches.open('jepoy-eq-data-v1');
-      const cachedRes = await cache.match(url);
-      if (cachedRes) {
-        const data = await cachedRes.json();
-        currentData = data.features || [];
-        renderEarthquakes(currentData);
-        console.log('Loaded earthquake data from cache.');
-      } else {
-        alert('No cached data available yet. Connect to the internet first.');
+      // latest
+      if (adv === 'latest') {
+        return `${base}?format=geojson&limit=1&orderby=time`;
       }
-    } else {
-      alert('Offline and cache not available.');
+
+      let start, end;
+
+      if (adv === 'today') {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        start = `${y}-${m}-${d}T00:00:00`;
+        end = `${y}-${m}-${d}T23:59:59`;
+      } else if (adv === 'custom') {
+        const d = controls.singleDate.value;
+        if (!d) return null;
+        start = `${d}T00:00:00`;
+        end = `${d}T23:59:59`;
+      } else if (adv === 'range') {
+        const f = controls.fromDate.value;
+        const t = controls.toDate.value;
+        if (!f || !t) return null;
+        start = `${f}T00:00:00`;
+        end = `${t}T23:59:59`;
+      } else {
+        // timeframe control: hour/day/week (fall back to day)
+        const timeframe = controls.timeframe.value || 'day';
+        const now = new Date();
+        let past;
+        if (timeframe === 'hour') past = new Date(now.getTime() - 1 * 3600000);
+        else if (timeframe === 'day') past = new Date(now.getTime() - 24 * 3600000);
+        else past = new Date(now.getTime() - 7 * 24 * 3600000);
+        start = isoNoMs(past);
+        end = isoNoMs(now);
+      }
+
+      const params = new URLSearchParams({
+        format: 'geojson',
+        starttime: start,
+        endtime: end,
+        orderby: 'time',
+        limit: 20000 // big limit to allow long ranges (USGS caps but this is OK)
+      });
+
+      return `${base}?${params.toString()}`;
     }
-  } finally {
-    controls.refreshBtn.disabled = false;
-    controls.refreshBtn.textContent = 'Refresh Now';
-  }
-}
 
-/**
- * Render earthquakes: markers + list + summary
- */
-function renderEarthquakes(features) {
-  // Clear previous markers
-  markersLayer.clearLayers();
+    // Try to load from cache (if SW caches dynamic data)
+    async function tryLoadFromCache(url) {
+      if (!('caches' in window)) return null;
+      try {
+        const cache = await caches.open('jepoy-eq-data-v1');
+        const matching = await cache.match(url);
+        if (matching) {
+          const json = await matching.json();
+          return json;
+        }
+      } catch (e) { /* ignore */ }
+      return null;
+    }
 
-  // Clear list efficiently
-  controls.list.innerHTML = '';
-  if (!features || !features.length) {
-    controls.list.innerHTML = '<div class="text-sm text-slate-500">No earthquakes found for the selected timeframe/area.</div>';
-    document.getElementById('card_total').textContent = '0';
-    document.getElementById('card_maxmag').textContent = '—';
-    document.getElementById('card_latest').textContent = '—';
-    return;
-  }
+    // Fetch earthquake data with graceful offline fallback
+    async function fetchEarthquakes() {
+      const url = buildUSGSUrl();
+      if (!url) {
+        // missing custom dates
+        console.warn('No URL (choose a date or range).');
+        return;
+      }
 
-  const fragment = document.createDocumentFragment();
-  let maxMag = 0;
+      lastFetchUrl = url;
+      setLoading(true);
 
-  for (let i = 0; i < features.length; i++) {
-    const f = features[i];
-    const [lon, lat, depth] = f.geometry.coordinates;
-    const { mag = 0, place = 'Unknown', time: ts, url } = f.properties;
-    const time = new Date(ts);
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) throw new Error('Network response not ok');
+        const json = await res.json();
+        allFeatures = json.features || [];
+        // Optionally store the fetched data in cache for offline usage
+        try {
+          if ('caches' in window) {
+            const cache = await caches.open('jepoy-eq-data-v1');
+            cache.put(url, res.clone()).catch(()=>{});
+          }
+        } catch(e){}
+        renderFromFeatures();
+      } catch (err) {
+        console.warn('Fetch failed, trying cache...', err);
+        const cached = await tryLoadFromCache(url);
+        if (cached) {
+          allFeatures = cached.features || [];
+          renderFromFeatures(true);
+        } else {
+          alert('Unable to fetch data and no cached copy available.');
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
 
-    if (mag > maxMag) maxMag = mag;
+    // UI: show loading state on refresh button
+    function setLoading(isLoading) {
+      controls.refreshBtn.disabled = isLoading;
+      controls.refreshBtn.textContent = isLoading ? 'Loading…' : 'Refresh';
+    }
 
-    // Create marker directly in FeatureGroup
-    const radius = Math.max(4, mag * 4);
-    const marker = L.circleMarker([lat, lon], {
-      radius,
-      fillColor: '#dc2626',
-      color: '#7f1d1d',
-      weight: 1,
-      fillOpacity: 0.9
-    }).addTo(markersLayer); // <-- add directly
-    marker.bindPopup(`
-      <div style="min-width:200px">
-        <strong>${place}</strong><br/>
-        <b>Mag:</b> ${mag} &nbsp; <b>Depth:</b> ${depth} km<br/>
-        <b>Time:</b> ${time.toLocaleString()}<br/>
-        <a href="${url}" target="_blank" rel="noreferrer">Details</a>
-      </div>
-    `);
+    // Map and list rendering (very optimized)
+    function renderFromFeatures(cached=false) {
+      // apply filters: phil only & magnitude range
+      const minMag = parseFloat(controls.magMin.value) || 0;
+      const maxMag = parseFloat(controls.magMax.value);
+      const philOnly = controls.philOnly.checked;
+      const heatOn = controls.heatToggle.checked;
 
-    // List row
-    const row = document.createElement('div');
-    row.className = 'p-2 rounded hover:bg-slate-50 cursor-pointer border border-transparent hover:border-slate-100';
-    row.innerHTML = `
-      <div class="flex justify-between items-center">
-        <div>
-          <div class="text-sm font-medium">${place}</div>
-          <div class="text-xs text-slate-500">${time.toLocaleString()}</div>
+      const filtered = [];
+      for (let i = 0; i < allFeatures.length; i++) {
+        const f = allFeatures[i];
+        const props = f.properties || {};
+        const geom = f.geometry || {};
+        if (!geom.coordinates) continue;
+        const mag = props.mag || 0;
+        if (mag < minMag) continue;
+        if (!isNaN(maxMag) && mag > maxMag) continue;
+
+        if (philOnly) {
+          const lon = geom.coordinates[0], lat = geom.coordinates[1];
+          if (lat < PH_BBOX.minlatitude || lat > PH_BBOX.maxlatitude || lon < PH_BBOX.minlongitude || lon > PH_BBOX.maxlongitude) {
+            continue;
+          }
+        }
+        filtered.push(f);
+      }
+
+      // Update cards (fast)
+      document.getElementById('cardTotal').textContent = filtered.length;
+      let maxM = 0;
+      if (filtered.length) {
+        for (const f of filtered) { if ((f.properties?.mag||0) > maxM) maxM = f.properties.mag; }
+        document.getElementById('cardMax').textContent = maxM.toFixed(1);
+        document.getElementById('cardRecent').textContent = new Date(filtered[0].properties.time).toLocaleString();
+      } else {
+        document.getElementById('cardMax').textContent = '—';
+        document.getElementById('cardRecent').textContent = '—';
+      }
+
+      // Prepare list DOM (fragment)
+      const frag = document.createDocumentFragment();
+      const maxList = Math.min(filtered.length, 1000); // show up to 1000 rows for perf
+      for (let i = 0; i < maxList; i++) {
+        const f = filtered[i];
+        const props = f.properties || {};
+        const place = props.place || 'Unknown';
+        const mag = (props.mag ?? '-');
+        const depth = (f.geometry?.coordinates?.[2] ?? '-');
+        const timeStr = new Date(props.time).toLocaleString();
+
+        const row = document.createElement('div');
+        row.className = 'quake-row p-2 rounded hover:bg-slate-50 cursor-pointer border border-transparent hover:border-slate-100';
+        row.innerHTML = `
+          <div class="flex justify-between items-center text-sm">
+            <div>
+              <div class="font-medium">${place}</div>
+              <div class="text-xs text-slate-500">${timeStr}</div>
+            </div>
+            <div class="text-right">
+              <div class="font-semibold">${mag}</div>
+              <div class="text-xs text-slate-400">${Math.round(depth)} km</div>
+            </div>
+          </div>
+        `;
+        // attach click handler to zoom & show details
+        (function(ff){
+          row.addEventListener('click', () => {
+            const coords = ff.geometry.coordinates;
+            const lon = coords[0], lat = coords[1], d = coords[2];
+            map.setView([lat, lon], Math.max(5, Math.round((ff.properties?.mag || 4) + 2)));
+            // open popup from cluster group by creating a quick marker
+            const tmp = L.circleMarker([lat, lon], { radius: Math.max(4, (ff.properties?.mag||0)*4), fillColor:'#dc2626', color:'#7f1d1d', weight:1 }).addTo(map);
+            tmp.bindPopup(renderPopup(ff)).openPopup();
+            setTimeout(()=>tmp.remove(), 6000);
+            showDetails(ff);
+          });
+        })(f);
+
+        frag.appendChild(row);
+      }
+
+      // replace list contents
+      const listEl = controls.list;
+      listEl.innerHTML = '';
+      listEl.appendChild(frag);
+
+      // Render markers or heatmap
+      if (heatOn) {
+        // remove cluster markers
+        clusterGroup.clearLayers();
+        // prepare heat points [lat, lon, intensity]
+        const pts = filtered.map(f => {
+          const [lon, lat] = f.geometry.coordinates;
+          const mag = f.properties?.mag || 1;
+          return [lat, lon, mag];
+        });
+        if (!heatLayer) {
+          heatLayer = L.heatLayer(pts, { radius: 25, blur: 15, maxZoom: 10 });
+          heatLayer.addTo(map);
+        } else {
+          heatLayer.setLatLngs(pts);
+        }
+      } else {
+        // remove heat
+        if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+        // cluster markers
+        // For performance: build markers in chunks then add
+        clusterGroup.clearLayers();
+        const markers = [];
+        for (let i = 0; i < filtered.length; i++) {
+          const f = filtered[i];
+          const [lon, lat, depth] = f.geometry.coordinates;
+          const mag = f.properties?.mag ?? 0;
+          const m = L.circleMarker([lat, lon], {
+            radius: Math.max(4, mag * 4),
+            fillColor: getColorForMag(mag),
+            color: '#222',
+            weight: 0.6,
+            fillOpacity: 0.9
+          });
+          m.bindPopup(renderPopup(f));
+          m.on('click', () => showDetails(f));
+          markers.push(m);
+        }
+        // batch-add
+        // markercluster supports addLayers(array)
+        if (markers.length) clusterGroup.addLayers(markers);
+      }
+
+      // Fit bounds, but only if not enormous and if there are markers
+      requestAnimationFrame(() => {
+        try {
+          const bounds = clusterGroup.getBounds();
+          if (bounds.isValid() && filtered.length > 0) {
+            // only fit when many markers or when user hasn't manually moved map recently
+            map.fitBounds(bounds.pad(0.25), { maxZoom: 6, animate: true });
+          }
+        } catch (e) { /* ignore */ }
+      });
+    }
+
+    // helper: popup HTML
+    function renderPopup(f) {
+      const p = f.properties || {};
+      const [lon, lat, depth] = f.geometry.coordinates || [];
+      const time = new Date(p.time).toLocaleString();
+      return `
+        <div style="min-width:220px">
+          <strong>${p.place || 'Unknown'}</strong><br/>
+          <b>Mag:</b> ${p.mag ?? '-'} &nbsp; <b>Depth:</b> ${Math.round(depth)} km<br/>
+          <b>Time:</b> ${time}<br/>
+          <a href="${p.url}" target="_blank" rel="noreferrer">Details</a>
         </div>
-        <div class="text-right">
-          <div class="text-sm font-semibold">${mag ?? '-'}</div>
-          <div class="text-xs text-slate-400">${Math.round(depth)} km</div>
+      `;
+    }
+
+    function showDetails(f) {
+      const p = f.properties || {};
+      const [lon, lat, depth] = f.geometry.coordinates || [];
+      controls.details.classList.remove('hidden');
+      controls.details.innerHTML = `
+        <div class="flex items-start justify-between">
+          <div>
+            <h3 class="font-semibold">${p.place || 'Unknown'}</h3>
+            <div class="text-sm text-slate-600">Time: ${new Date(p.time).toLocaleString()}</div>
+            <div class="text-xs text-slate-500">ID: ${f.id || 'n/a'}</div>
+          </div>
+          <div class="text-right">
+            <div class="text-2xl font-bold text-red-600">${p.mag ?? '-'}</div>
+            <div class="text-sm text-slate-500">Depth: ${Math.round(depth)} km</div>
+          </div>
         </div>
-      </div>
-    `;
-    row.addEventListener('click', () => {
-      map.setView([lat, lon], Math.max(5, 2 + Math.round(mag)));
-      marker.openPopup();
-      showDetails({ place, mag, depth, time, url });
+        <div class="mt-3 text-sm">
+          <a class="text-blue-600" href="${p.url}" target="_blank" rel="noreferrer">View full event page</a>
+        </div>
+      `;
+      // scroll to details on small screens
+      controls.details.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // color scale
+    function getColorForMag(m) {
+      if (m >= 6) return '#7f1d1d';
+      if (m >= 5) return '#ef4444';
+      if (m >= 4) return '#f97316';
+      if (m >= 3) return '#f59e0b';
+      return '#fbbf24';
+    }
+
+    // ========== events & hookups ==========
+
+    // show/hide custom date inputs
+    controls.advMode.addEventListener('change', () => {
+      const v = controls.advMode.value;
+      controls.customSingle = document.getElementById('customSingle'); // safe node
+      if (v === 'custom') {
+        document.getElementById('customSingle').classList.remove('hidden');
+        document.getElementById('customRange').classList.add('hidden');
+      } else if (v === 'range') {
+        document.getElementById('customRange').classList.remove('hidden');
+        document.getElementById('customSingle').classList.add('hidden');
+      } else {
+        document.getElementById('customSingle').classList.add('hidden');
+        document.getElementById('customRange').classList.add('hidden');
+      }
+      // fetch for new criteria (debounced)
+      debFetch();
     });
-    fragment.appendChild(row);
-  }
 
-  // Append list once
-  controls.list.appendChild(fragment);
+    // debounced fetch when dates or timeframe change
+    const debFetch = debounce(()=> fetchEarthquakes(), 500);
 
-  // Update summary cards
-  document.getElementById('card_total').textContent = features.length;
-  document.getElementById('card_maxmag').textContent = maxMag;
-  document.getElementById('card_latest').textContent = new Date(features[0].properties.time).toLocaleString();
+    controls.timeframe.addEventListener('change', debFetch);
+    controls.singleDate.addEventListener('change', debFetch);
+    controls.fromDate.addEventListener('change', debFetch);
+    controls.toDate.addEventListener('change', debFetch);
+    controls.philOnly.addEventListener('change', debFetch);
 
-  // Fit map bounds
-  requestAnimationFrame(() => {
-    const bounds = markersLayer.getBounds();
-    if (bounds.isValid()) {
-      map.fitBounds(bounds.pad(0.35), { maxZoom: 6 });
+    // magnitude inputs: fetch/render on enter or blur
+    controls.magMin.addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchEarthquakes(); });
+    controls.magMax.addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchEarthquakes(); });
+    controls.magMin.addEventListener('blur', ()=> renderFromFeatures());
+    controls.magMax.addEventListener('blur', ()=> renderFromFeatures());
+
+    // heat toggle
+    controls.heatToggle.addEventListener('change', () => {
+      renderFromFeatures();
+    });
+
+    // refresh button
+    controls.refreshBtn.addEventListener('click', fetchEarthquakes);
+
+    // clear list & markers
+    controls.clearBtn.addEventListener('click', () => {
+      allFeatures = [];
+      clusterGroup.clearLayers();
+      if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+      controls.list.innerHTML = '';
+      controls.cardTotal.textContent = '0';
+      controls.cardMax.textContent = '—';
+      controls.cardRecent.textContent = '—';
+      controls.details.classList.add('hidden');
+    });
+
+    // auto refresh start/stop
+    controls.toggleAutoBtn.addEventListener('click', () => {
+      const running = !!autoTimer;
+      if (running) {
+        clearInterval(autoTimer);
+        autoTimer = null;
+        controls.toggleAutoBtn.textContent = 'Start';
+        controls.toggleAutoBtn.classList.remove('bg-red-600','text-white');
+        controls.toggleAutoBtn.classList.add('bg-gray-200');
+      } else {
+        const sec = Math.max(10, Number(controls.autoInterval.value) || 60);
+        autoTimer = setInterval(fetchEarthquakes, sec*1000);
+        controls.toggleAutoBtn.textContent = 'Stop';
+        controls.toggleAutoBtn.classList.add('bg-red-600','text-white');
+        controls.toggleAutoBtn.classList.remove('bg-gray-200');
+      }
+    });
+
+    // initial UI defaults
+    controls.advMode.value = 'today'; // default = Today
+    document.getElementById('customSingle').classList.add('hidden');
+    document.getElementById('customRange').classList.add('hidden');
+
+    // listen online/offline
+    function updateNetworkStatus() {
+      const online = navigator.onLine;
+      controls.networkText.textContent = online ? 'Online' : 'Offline';
+      controls.statusOnline.style.color = online ? 'lightgreen' : 'orange';
     }
-  });
-}
+    window.addEventListener('online', updateNetworkStatus);
+    window.addEventListener('offline', updateNetworkStatus);
+    updateNetworkStatus();
 
-/**
- * Show earthquake details in sidebar
- */
-function showDetails({ place, mag, depth, time, url }) {
-  controls.details.classList.remove('hidden');
-  controls.details.innerHTML = `
-    <div class="flex items-start justify-between">
-      <div>
-        <h3 class="font-semibold">${place}</h3>
-        <div class="text-sm text-slate-600">Time: ${time.toLocaleString()}</div>
-      </div>
-      <div class="text-right">
-        <div class="text-2xl font-bold text-red-600">${mag}</div>
-        <div class="text-sm text-slate-500">Depth: ${depth} km</div>
-      </div>
-    </div>
-    <div class="mt-3 text-sm">
-      <a class="text-blue-600" href="${url}" target="_blank" rel="noreferrer">View full event page</a>
-    </div>
-  `;
-}
+    // keyboard: force refresh with 'r'
+    window.addEventListener('keydown', (e)=> { if (e.key === 'r') fetchEarthquakes(); });
 
-/**
- * Auto-refresh controls
- */
-function startAutoRefresh() {
-  stopAutoRefresh();
-  const interval = Math.max(10, Number(controls.intervalInput.value) || 60);
-  autoTimer = setInterval(fetchEarthquakes, interval * 1000);
-  controls.toggleAuto.textContent = 'Stop';
-  controls.toggleAuto.classList.add('bg-red-600', 'text-white');
-  controls.toggleAuto.classList.remove('bg-gray-100');
-}
+    // register service worker (optional: create sw.js separately)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').then(reg => {
+        // registration succeeded
+        console.log('SW registered', reg);
+      }).catch(err => {
+        console.warn('SW register failed', err);
+      });
+    }
 
-function stopAutoRefresh() {
-  if (autoTimer) clearInterval(autoTimer);
-  autoTimer = null;
-  controls.toggleAuto.textContent = 'Start';
-  controls.toggleAuto.classList.remove('bg-red-600', 'text-white');
-  controls.toggleAuto.classList.add('bg-gray-100');
-}
+    // initial load
+    fetchEarthquakes();
 
-// Control events
-controls.refreshBtn.addEventListener('click', fetchEarthquakes);
-controls.timeframe.addEventListener('change', fetchEarthquakes);
-controls.philToggle.addEventListener('change', fetchEarthquakes);
-controls.toggleAuto.addEventListener('click', () => autoTimer ? stopAutoRefresh() : startAutoRefresh());
-controls.intervalInput.addEventListener('change', () => { if (autoTimer) startAutoRefresh(); });
+    // expose some helpers for console debugging (optional)
+    window._jepoy = {
+      fetchEarthquakes, renderFromFeatures, allFeatures, clusterGroup
+    };
 
-// Initial fetch
-fetchEarthquakes();
-startAutoRefresh();
-</script>
-<script src="pwa.js"></script>
-
-
+  })();
+  </script>
 </body>
 </html>
